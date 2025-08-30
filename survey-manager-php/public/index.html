@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gestor de Encuestas — Admin</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <!-- Exportar a XLSX y PDF en cliente -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+</head>
+<body>
+  <header>
+    <div class="container row">
+      <h1>Gestor de Encuestas</h1>
+      <div class="right small" id="meBox"></div>
+    </div>
+  </header>
+  <div class="container">
+    <div id="authView" class="card">
+      <h2>Iniciar sesión</h2>
+      <div class="grid two">
+        <div>
+          <label>Correo</label><br/>
+          <input id="loginEmail" type="email" placeholder="tu@correo.com"/>
+        </div>
+        <div>
+          <label>Contraseña</label><br/>
+          <input id="loginPass" type="password" placeholder="••••••••"/>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="btnLogin">Entrar</button>
+        <span class="small">o</span>
+        <button class="ghost" id="btnShowReg">Crear cuenta</button>
+      </div>
+      <div id="regBox" class="card hidden">
+        <h3>Registro</h3>
+        <div class="grid two">
+          <div><label>Nombre</label><br/><input id="regName" type="text" /></div>
+          <div><label>Correo</label><br/><input id="regEmail" type="email" /></div>
+        </div>
+        <div class="grid two" style="margin-top:8px;">
+          <div><label>Contraseña</label><br/><input id="regPass" type="password" /></div>
+          <div><label>Rol</label><br/>
+            <select id="regRole">
+              <option value="respondent">Respondent</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button id="btnReg">Registrar</button>
+          <button class="ghost" id="btnHideReg">Cancelar</button>
+        </div>
+      </div>
+      <div id="authMsg" class="small"></div>
+    </div>
+
+    <div id="appView" class="hidden">
+      <div class="card row">
+        <div class="right">
+          <button id="btnLogout">Cerrar sesión</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <h2>Mis encuestas</h2>
+          <button class="right" id="btnReload">Actualizar</button>
+        </div>
+        <table class="table" id="tblSurveys">
+          <thead><tr><th>ID</th><th>Título</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Crear nueva encuesta</h3>
+        <div class="grid two">
+          <div><label>Título</label><br/><input id="svTitle" /></div>
+          <div><label>Estado</label><br/>
+            <select id="svStatus"><option>draft</option><option>open</option><option>closed</option></select>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:8px;">
+          <div><label>Descripción</label><br/><input id="svDesc" /></div>
+          <div><label>¿Anónima?</label><br/>
+            <select id="svAnon"><option value="0">No</option><option value="1">Sí</option></select>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button id="btnCreate">Crear</button>
+        </div>
+        <div id="createMsg" class="small"></div>
+      </div>
+
+      <div id="builder" class="card hidden">
+        <div class="row" style="align-items:center; gap:10px;">
+          <h3 style="margin:0;">Constructor de preguntas</h3>
+          <span class="small">Encuesta <span id="bSurvey"></span></span>
+          <div class="right"></div>
+          <button id="btnDeleteSurvey" class="ghost">Eliminar encuesta</button>
+        </div>
+
+        <div class="grid two" style="margin-top:12px;">
+          <div><label>Texto de la pregunta</label><br/><input id="qText"/></div>
+          <div><label>Tipo</label><br/>
+            <select id="qType">
+              <option value="text">Texto</option>
+              <option value="number">Número</option>
+              <option value="date">Fecha</option>
+              <option value="single">Opción única</option>
+              <option value="multi">Selección múltiple</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:8px;">
+          <div><label>Posición</label><br/><input id="qPos" type="number" value="1"/></div>
+          <div><label>Requerida</label><br/>
+            <select id="qReq"><option value="0">No</option><option value="1">Sí</option></select>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:8px;">
+          <div><label>Mín</label><br/><input id="qMin" type="number"/></div>
+          <div><label>Máx</label><br/><input id="qMax" type="number"/></div>
+        </div>
+
+        <div class="card" id="choiceBox" style="margin-top:10px;">
+          <h4>Opciones</h4>
+          <div class="row">
+            <input id="chLabel" placeholder="Etiqueta" />
+            <input id="chValue" placeholder="Valor (opcional)" />
+            <button id="btnAddChoice">Agregar opción</button>
+          </div>
+          <ul id="choiceList"></ul>
+        </div>
+
+        <div class="row" style="margin-top:8px;">
+          <button id="btnAddQ">Agregar pregunta</button>
+        </div>
+
+        <div style="margin-top:10px;">
+          <h4>Preguntas actuales</h4>
+          <div id="qList"></div>
+        </div>
+      </div>
+
+      <div id="results" class="card hidden">
+        <h3>Resultados & Exportación</h3>
+        <div class="row">
+          <button id="btnCSV">Exportar CSV</button>
+          <button id="btnXLSX">Exportar XLSX</button>
+          <button id="btnPDF">Exportar PDF</button>
+        </div>
+        <div id="resBox"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const api = (path, options={}) =>
+  fetch('../api/'+path, Object.assign({credentials:'include', headers:{'Content-Type':'application/json'}}, options));
+
+const meBox   = document.getElementById('meBox');
+const authView= document.getElementById('authView');
+const appView = document.getElementById('appView');
+const regBox  = document.getElementById('regBox');
+document.getElementById('btnShowReg').onclick = ()=> regBox.classList.remove('hidden');
+document.getElementById('btnHideReg').onclick = ()=> regBox.classList.add('hidden');
+
+async function refreshMe(){
+  const r = await api('auth.php?action=me');
+  const me = await r.json();
+  if (me && me.Role) {
+    meBox.innerHTML = 'Hola, <b>'+me.Name+'</b> <span class="badge">'+me.Role+'</span>';
+    authView.classList.add('hidden');
+    appView.classList.remove('hidden');
+    loadSurveys();
+  } else {
+    authView.classList.remove('hidden');
+    appView.classList.add('hidden');
+  }
+}
+refreshMe();
+
+document.getElementById('btnReg').onclick = async ()=>{
+  const body = {
+    action:'register',
+    name: document.getElementById('regName').value.trim(),
+    email: document.getElementById('regEmail').value.trim(),
+    password: document.getElementById('regPass').value,
+    role: document.getElementById('regRole').value
+  };
+  const r = await api('auth.php', {method:'POST', body: JSON.stringify(body)});
+  const data = await r.json();
+  document.getElementById('authMsg').textContent = data.error || 'Cuenta creada ✔️';
+};
+
+document.getElementById('btnLogin').onclick = async ()=>{
+  const body = {
+    action:'login',
+    email: document.getElementById('loginEmail').value.trim(),
+    password: document.getElementById('loginPass').value
+  };
+  const r = await api('auth.php', {method:'POST', body: JSON.stringify(body)});
+  const data = await r.json();
+  if (data.error) {
+    document.getElementById('authMsg').textContent = data.error;
+  } else {
+    document.getElementById('authMsg').textContent = '';
+    refreshMe();
+  }
+};
+
+document.getElementById('btnLogout').onclick = async ()=>{
+  await api('auth.php', {method:'POST', body: JSON.stringify({action:'logout'})});
+  location.reload();
+};
+
+async function loadSurveys(){
+  const r = await api('surveys.php');
+  const list = await r.json();
+  const tbody = document.querySelector('#tblSurveys tbody');
+  tbody.innerHTML = '';
+  list.forEach(s=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${s.ID}</td><td>${s.Title}</td><td>${s.Status}</td>
+      <td>
+        <a class="link" href="#" data-act="build" data-id="${s.ID}">Constructor</a> |
+        <a class="link" href="./take.html?survey=${s.ID}" target="_blank">Responder</a> |
+        <a class="link" href="#" data-act="results" data-id="${s.ID}">Resultados</a> |
+        <a class="link" href="#" data-act="delSurvey" data-id="${s.ID}">Eliminar</a>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.onclick = async (e)=>{
+    const act = e.target.dataset?.act;
+    const id  = e.target.dataset?.id;
+    if (!act) return;
+    e.preventDefault();
+    if (act === 'build')  openBuilder(id);
+    if (act === 'results') openResults(id);
+    if (act === 'delSurvey') {
+      const ok = confirm(`¿Eliminar la encuesta ID ${id}? Esto borrará preguntas y respuestas asociadas.`);
+      if (!ok) return;
+      const resp = await api('surveys.php?id='+id, {method:'DELETE'});
+      if (resp.ok) {
+        if (String(id) === String(currentSurveyId)) {
+          currentSurveyId = null;
+          document.getElementById('builder').classList.add('hidden');
+          document.getElementById('results').classList.add('hidden');
+        }
+        loadSurveys();
+      } else {
+        alert('No se pudo eliminar la encuesta.');
+      }
+    }
+  };
+}
+document.getElementById('btnReload').onclick = loadSurveys;
+
+let currentSurveyId = null;
+async function openBuilder(id){
+  currentSurveyId = id;
+  // Mostrar "ID — Título" en el encabezado del builder
+  try {
+    const r = await api('surveys.php?id='+id);
+    const sv = await r.json();
+    document.getElementById('bSurvey').textContent = `${id} — ${sv?.Title ?? ''}`;
+  } catch {
+    document.getElementById('bSurvey').textContent = id;
+  }
+  document.getElementById('builder').classList.remove('hidden');
+  document.getElementById('results').classList.add('hidden');
+  await refreshQuestions();
+}
+
+document.getElementById('btnDeleteSurvey').onclick = async ()=>{
+  if (!currentSurveyId) return;
+  const ok = confirm(`¿Eliminar la encuesta ID ${currentSurveyId}? Esto borrará preguntas y respuestas.`);
+  if (!ok) return;
+  const resp = await api('surveys.php?id='+currentSurveyId, {method:'DELETE'});
+  if (resp.ok) {
+    currentSurveyId = null;
+    document.getElementById('builder').classList.add('hidden');
+    document.getElementById('results').classList.add('hidden');
+    loadSurveys();
+  } else {
+    alert('No se pudo eliminar la encuesta.');
+  }
+};
+
+async function refreshQuestions(){
+  const r = await api('questions.php?survey_id='+currentSurveyId);
+  const qs = await r.json();
+  const list = document.getElementById('qList');
+  list.innerHTML = '';
+  qs.forEach(q=>{
+    const div = document.createElement('div');
+    div.className = 'card';
+    const opts = (q.Choices||[]).map(c=>`<li>${c.Label} <span class="small">(${c.Value})</span></li>`).join('');
+    div.innerHTML = `<b>${q.Position}. ${q.Text}</b> <span class="badge">${q.Type}</span>
+    <div class="small">Req: ${q.Is_required?'Sí':'No'} Min:${q.Min_value ?? ''} Max:${q.Max_value ?? ''}</div>
+    ${opts?'<ul>'+opts+'</ul>':''}
+    <div class="row" style="margin-top:8px;">
+      <a class="link" href="#" data-act="delq" data-id="${q.ID}">Eliminar pregunta</a>
+    </div>`;
+    list.appendChild(div);
+  });
+
+  // Delegación de eventos: eliminar pregunta
+  list.onclick = async (e)=>{
+    const act = e.target.dataset?.act;
+    if (act !== 'delq') return;
+    e.preventDefault();
+    const qid = e.target.dataset.id;
+    const ok = confirm(`¿Eliminar la pregunta ID ${qid}?`);
+    if (!ok) return;
+    const resp = await api('questions.php?id='+qid, {method:'DELETE'});
+    if (resp.ok) {
+      refreshQuestions();
+    } else {
+      alert('No se pudo eliminar la pregunta.');
+    }
+  };
+}
+
+const choiceBox  = document.getElementById('choiceBox');
+const choiceList = document.getElementById('choiceList');
+function toggleChoices(){
+  const t = document.getElementById('qType').value;
+  choiceBox.style.display = (t==='single'||t==='multi') ? 'block' : 'none';
+}
+document.getElementById('qType').onchange = ()=>{
+  toggleChoices();
+  // limpiar opciones temporales si cambia el tipo
+  tempChoices.length = 0; choiceList.innerHTML = '';
+};
+toggleChoices();
+
+const tempChoices = [];
+document.getElementById('btnAddChoice').onclick = ()=>{
+  const label = document.getElementById('chLabel').value.trim();
+  const value = document.getElementById('chValue').value.trim();
+  if (!label) return;
+  tempChoices.push({Label: label, Value: value || label});
+  const li = document.createElement('li');
+  li.textContent = label + (value ? ' ('+value+')' : '');
+  choiceList.appendChild(li);
+  document.getElementById('chLabel').value = '';
+  document.getElementById('chValue').value = '';
+};
+
+document.getElementById('btnAddQ').onclick = async ()=>{
+  const body = {
+    Survey_ID: Number(currentSurveyId),
+    Position: Number(document.getElementById('qPos').value || 1),
+    Text: document.getElementById('qText').value.trim(),
+    Type: document.getElementById('qType').value,
+    Is_required: document.getElementById('qReq').value === '1',
+    Min_value: document.getElementById('qMin').value || null,
+    Max_value: document.getElementById('qMax').value || null
+  };
+  const r = await api('questions.php', {method:'POST', body: JSON.stringify(body)});
+  const data = await r.json();
+  if (!data.error && (body.Type==='single'||body.Type==='multi') && tempChoices.length){
+    for (let i=0;i<tempChoices.length;i++){
+      await api('choices.php', {method:'POST', body: JSON.stringify({
+        Question_ID: data.id, Position: i+1, Label: tempChoices[i].Label, Value: tempChoices[i].Value
+      })});
+    }
+  }
+  tempChoices.length = 0; choiceList.innerHTML = '';
+  // limpiar inputs
+  document.getElementById('qText').value = '';
+  document.getElementById('qPos').value = '1';
+  document.getElementById('qMin').value = '';
+  document.getElementById('qMax').value = '';
+  refreshQuestions();
+};
+
+let resultSurveyId = null;
+async function openResults(id){
+  resultSurveyId = id;
+  document.getElementById('results').classList.remove('hidden');
+  document.getElementById('builder').classList.add('hidden');
+
+  const r = await api('analytics.php?survey_id='+id);
+  const data = await r.json();
+  const box = document.getElementById('resBox');
+  box.innerHTML = '';
+
+  // Agrupar por pregunta
+  const grouped = {};
+  (data.choice_counts||[]).forEach(row=>{
+    const qid = row.Question_ID;
+    grouped[qid] = grouped[qid] || {text: row.Question_Text, rows:[]};
+    grouped[qid].rows.push(row);
+  });
+
+  Object.values(grouped).forEach(g=>{
+    const card = document.createElement('div'); card.className='card';
+    let html = `<b>${g.text}</b><table class="table"><thead><tr><th>Opción</th><th>Selecciones</th></tr></thead><tbody>`;
+    g.rows.forEach(r=>{ html += `<tr><td>${r.Label}</td><td>${r.Count_Selected}</td></tr>`; });
+    html += '</tbody></table>';
+    card.innerHTML = html;
+    box.appendChild(card);
+  });
+
+  // Numéricas
+  (data.numeric||[]).forEach(n=>{
+    const card = document.createElement('div'); card.className='card';
+    card.innerHTML = `<b>${n.Question_Text}</b><div class="small">n=${n.n}</div>
+    <div>Promedio: <b>${Number(n.avg).toFixed(2)}</b> | Min: ${n.min} | Max: ${n.max}</div>`;
+    box.appendChild(card);
+  });
+}
+
+// Exportar CSV (servidor)
+document.getElementById('btnCSV').onclick = ()=>{
+  if (!resultSurveyId) return;
+  window.location.href = '../api/export_csv.php?survey_id='+resultSurveyId;
+};
+
+// Exportar XLSX (cliente) usando tabla de recuentos visible
+document.getElementById('btnXLSX').onclick = ()=>{
+  const tables = document.querySelectorAll('#resBox table');
+  if (tables.length === 0) return;
+  const wb = XLSX.utils.book_new();
+  tables.forEach((t, idx)=>{
+    const ws = XLSX.utils.table_to_sheet(t);
+    XLSX.utils.book_append_sheet(wb, ws, 'P'+(idx+1));
+  });
+  XLSX.writeFile(wb, 'resultados_encuesta_'+resultSurveyId+'.xlsx');
+};
+
+// Exportar PDF (cliente) capturando el HTML simple
+document.getElementById('btnPDF').onclick = async ()=>{
+  if (!resultSurveyId) return;
+  if (!window.jspdf || !window.html2canvas) {
+    alert('No se pudo cargar jsPDF o html2canvas. Revisa la conexión o los <script> del head.');
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:'pt', format:'a4' });
+
+  await doc.html(document.getElementById('resBox'), {
+    // Opcional: mejora calidad y evita problemas de desplazamiento
+    html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: -window.scrollY },
+    margin: [20,20,20,20],
+    autoPaging: 'text',
+    callback: (d)=> d.save('resultados_encuesta_'+resultSurveyId+'.pdf')
+  });
+};
+</script>
+</body>
+</html>

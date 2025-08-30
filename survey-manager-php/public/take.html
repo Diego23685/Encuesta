@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Responder Encuesta</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h2 id="svTitle">Encuesta</h2>
+      <div id="svDesc" class="small"></div>
+      <div id="userBox" class="grid two" style="margin-top:10px;">
+        <div><label>Tu nombre (opcional)</label><br/><input id="name"/></div>
+        <div><label>Tu email (para registrar tu envío)</label><br/><input id="email" type="email"/></div>
+      </div>
+    </div>
+    <form id="form"></form>
+    <div class="card">
+      <button id="btnSend">Enviar respuestas</button>
+      <span id="msg" class="small"></span>
+    </div>
+  </div>
+
+<script>
+const api = (path, options={}) =>
+  fetch('../api/'+path, Object.assign({headers:{'Content-Type':'application/json'}}, options));
+
+const params = new URLSearchParams(location.search);
+const surveyId = Number(params.get('survey'));
+if (!surveyId) document.body.innerHTML = '<div class="container"><div class="card">Falta ?survey=ID</div></div>';
+
+async function loadSurvey(){
+  const r = await api('submissions.php?survey_id='+surveyId);
+  const data = await r.json();
+  document.getElementById('svTitle').textContent = data.survey.Title;
+  document.getElementById('svDesc').textContent = data.survey.Description || '';
+  if (data.survey.Is_anonymous) document.getElementById('userBox').style.display = 'none';
+
+  const form = document.getElementById('form');
+  form.innerHTML = '';
+  (data.questions||[]).forEach(q=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.qid = q.ID;
+    card.dataset.type = q.Type; // text|number|date|single|multi
+
+    let html = `<b>${q.Position}. ${q.Text}</b> <span class="badge">${q.Type}</span>`;
+    if (q.Type === 'text') {
+      html += `<div style="margin-top:8px;"><input name="q_${q.ID}" placeholder="Tu respuesta"/></div>`;
+    }
+    if (q.Type === 'number') {
+      const min = q.Min_value ?? '';
+      const max = q.Max_value ?? '';
+      html += `<div style="margin-top:8px;"><input type="number" name="q_${q.ID}" min="${min}" max="${max}"/></div>`;
+    }
+    if (q.Type === 'date') {
+      html += `<div style="margin-top:8px;"><input type="date" name="q_${q.ID}"/></div>`;
+    }
+    if (q.Type === 'single') {
+      html += '<div style="margin-top:8px;">';
+      (q.Choices||[]).forEach(c=>{
+        html += `<label style="display:block"><input type="radio" name="q_${q.ID}" value="${c.ID}"/> ${c.Label}</label>`;
+      });
+      html += '</div>';
+    }
+    if (q.Type === 'multi') {
+      html += '<div style="margin-top:8px;">';
+      (q.Choices||[]).forEach(c=>{
+        html += `<label style="display:block"><input type="checkbox" name="q_${q.ID}[]" value="${c.ID}"/> ${c.Label}</label>`;
+      });
+      html += '</div>';
+    }
+    card.innerHTML = html;
+    form.appendChild(card);
+  });
+}
+loadSurvey();
+
+document.getElementById('btnSend').onclick = async (e)=>{
+  e.preventDefault();
+  const answers = [];
+
+  document.querySelectorAll('#form .card').forEach(card=>{
+    const type = card.dataset.type;
+    const qid  = Number(card.dataset.qid);
+
+    if (type === 'text') {
+      const v = card.querySelector('input')?.value ?? '';
+      answers.push({question_id: qid, type:'text', value: v});
+    } else if (type === 'number') {
+      const v = card.querySelector('input')?.value;
+      answers.push({question_id: qid, type:'number', value: (v===''? null : Number(v))});
+    } else if (type === 'date') {
+      const v = card.querySelector('input')?.value ?? null;
+      answers.push({question_id: qid, type:'date', value: v});
+    } else if (type === 'single') {
+      const checked = card.querySelector('input[type=radio]:checked');
+      answers.push({question_id: qid, type:'single', value: checked ? Number(checked.value) : null});
+    } else if (type === 'multi') {
+      const boxes = [...card.querySelectorAll('input[type=checkbox]:checked')].map(b=>Number(b.value));
+      answers.push({question_id: qid, type:'multi', choices: boxes});
+    }
+  });
+
+  const body = {
+    survey_id: surveyId,
+    name: document.getElementById('name').value.trim(),
+    email: document.getElementById('email').value.trim(),
+    answers
+  };
+
+  const r = await api('submissions.php', {method:'POST', body: JSON.stringify(body)});
+  const data = await r.json();
+  document.getElementById('msg').textContent = data.error || '¡Gracias! Respuestas enviadas ✔️';
+  if (!data.error) document.getElementById('btnSend').disabled = true;
+};
+</script>
+</body>
+</html>
