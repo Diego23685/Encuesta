@@ -172,6 +172,20 @@ const regBox  = document.getElementById('regBox');
 document.getElementById('btnShowReg').onclick = ()=> regBox.classList.remove('hidden');
 document.getElementById('btnHideReg').onclick = ()=> regBox.classList.add('hidden');
 
+document.getElementById('btnCreate').onclick = async ()=>{
+  const body = {
+    Title: document.getElementById('svTitle').value.trim(),
+    Description: document.getElementById('svDesc').value.trim(),
+    Is_anonymous: document.getElementById('svAnon').value === '1',
+    Status: document.getElementById('svStatus').value
+  };
+  const r = await api('surveys.php', {method:'POST', body: JSON.stringify(body)});
+  const data = await r.json();
+  document.getElementById('createMsg').textContent = data.error || ('Creada con ID '+data.id);
+  if (!data.error) loadSurveys();
+};
+
+
 async function refreshMe(){
   const r = await api('auth.php?action=me');
   const me = await r.json();

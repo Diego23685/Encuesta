@@ -31,12 +31,15 @@ const params = new URLSearchParams(location.search);
 const surveyId = Number(params.get('survey'));
 if (!surveyId) document.body.innerHTML = '<div class="container"><div class="card">Falta ?survey=ID</div></div>';
 
+
 async function loadSurvey(){
   const r = await api('submissions.php?survey_id='+surveyId);
   const data = await r.json();
   document.getElementById('svTitle').textContent = data.survey.Title;
   document.getElementById('svDesc').textContent = data.survey.Description || '';
   if (data.survey.Is_anonymous) document.getElementById('userBox').style.display = 'none';
+
+  
 
   const form = document.getElementById('form');
   form.innerHTML = '';
