@@ -6,7 +6,7 @@ $survey_id = (int)($_GET['survey_id'] ?? 0);
 if (!$survey_id) { http_response_code(422); echo 'survey_id requerido'; exit; }
 
 header('Content-Type: text/csv; charset=utf-8');
-header('Content-Disposition: attachment; filename=survey_'+$survey_id+'.csv');
+header('Content-Disposition: attachment; filename=survey_'.$survey_id.'.csv');
 
 $fp = fopen('php://output', 'w');
 fputcsv($fp, ['Submission_ID','Respondent','Email','Question','Answer']);

@@ -7,10 +7,8 @@
   <link rel="stylesheet" href="./styles.css" />
   <!-- Exportar a XLSX y PDF en cliente -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-
 </head>
 <body>
   <header>
@@ -118,7 +116,7 @@
             </select>
           </div>
         </div>
-        <div class="grid two" style="margin-top:8px;">
+        <div class="grid two" style="margin-top:8px%;">
           <div><label>Posición</label><br/><input id="qPos" type="number" value="1"/></div>
           <div><label>Requerida</label><br/>
             <select id="qReq"><option value="0">No</option><option value="1">Sí</option></select>
@@ -161,9 +159,39 @@
     </div>
   </div>
 
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
 <script>
+
+  
 const api = (path, options={}) =>
   fetch('../api/'+path, Object.assign({credentials:'include', headers:{'Content-Type':'application/json'}}, options));
+
+// caché último resultado para exportar
+const resultsCache = { analytics:null, questions:null, coding:null, matrix:null };
+
+// helper: escapar texto
+const esc = s => String(s ?? '')
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+// helper: normalizar (igual que open_coding.php) para mapear textos a códigos
+const normalizeVal = s => String(s ?? '').trim().replace(/\s+/g,' ').toLowerCase();
+
+// helper: números romanos (I, II, III...)
+function toRoman(num){
+  const map = [
+    [1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],
+    [100,'C'],[90,'XC'],[50,'L'],[40,'XL'],
+    [10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']
+  ];
+  let n = Number(num)||0, out = '';
+  for (const [v,sym] of map){
+    while(n>=v){ out+=sym; n-=v; }
+  }
+  return out || '';
+}
+
 
 const meBox   = document.getElementById('meBox');
 const authView= document.getElementById('authView');
@@ -280,7 +308,6 @@ document.getElementById('btnReload').onclick = loadSurveys;
 let currentSurveyId = null;
 async function openBuilder(id){
   currentSurveyId = id;
-  // Mostrar "ID — Título" en el encabezado del builder
   try {
     const r = await api('surveys.php?id='+id);
     const sv = await r.json();
@@ -351,7 +378,6 @@ function toggleChoices(){
 }
 document.getElementById('qType').onchange = ()=>{
   toggleChoices();
-  // limpiar opciones temporales si cambia el tipo
   tempChoices.length = 0; choiceList.innerHTML = '';
 };
 toggleChoices();
@@ -389,7 +415,6 @@ document.getElementById('btnAddQ').onclick = async ()=>{
     }
   }
   tempChoices.length = 0; choiceList.innerHTML = '';
-  // limpiar inputs
   document.getElementById('qText').value = '';
   document.getElementById('qPos').value = '1';
   document.getElementById('qMin').value = '';
@@ -398,41 +423,105 @@ document.getElementById('btnAddQ').onclick = async ()=>{
 };
 
 let resultSurveyId = null;
+
 async function openResults(id){
   resultSurveyId = id;
   document.getElementById('results').classList.remove('hidden');
   document.getElementById('builder').classList.add('hidden');
 
-  const r = await api('analytics.php?survey_id='+id);
-  const data = await r.json();
+  const [ra, rq, rc, rm] = await Promise.all([
+    api('analytics.php?survey_id='+id),
+    api('questions.php?survey_id='+id),
+    api('open_coding.php?survey_id='+id),
+    api('answers_matrix.php?survey_id='+id) // <-- NUEVO
+  ]);
+  resultsCache.analytics = await ra.json();
+  resultsCache.questions = await rq.json();
+  resultsCache.coding    = await rc.json();
+  resultsCache.matrix    = await rm.json();
+
+  // === Render en pantalla (igual que tenías: TODAS las preguntas) ===
+  const data       = resultsCache.analytics;
+  const questions  = resultsCache.questions;
+  const codingData = resultsCache.coding;
+
+  const numericByQ = {};
+  (data.numeric || []).forEach(n => { numericByQ[n.Question_ID] = n; });
+
+  const countsByQChoiceId = {};
+  const countsByQLabel    = {};
+  (data.choice_counts || []).forEach(r => {
+    const qid = r.Question_ID;
+    countsByQChoiceId[qid] = countsByQChoiceId[qid] || {};
+    countsByQLabel[qid]    = countsByQLabel[qid]    || {};
+    if (r.Choice_ID !== undefined && r.Choice_ID !== null) {
+      countsByQChoiceId[qid][r.Choice_ID] = r.Count_Selected;
+    }
+    countsByQLabel[qid][r.Label] = r.Count_Selected;
+  });
+
+  const codeByQ = {};
+  (codingData.questions || []).forEach(q => { codeByQ[q.Question_ID] = q; });
+
   const box = document.getElementById('resBox');
   box.innerHTML = '';
 
-  // Agrupar por pregunta
-  const grouped = {};
-  (data.choice_counts||[]).forEach(row=>{
-    const qid = row.Question_ID;
-    grouped[qid] = grouped[qid] || {text: row.Question_Text, rows:[]};
-    grouped[qid].rows.push(row);
-  });
-
-  Object.values(grouped).forEach(g=>{
-    const card = document.createElement('div'); card.className='card';
-    let html = `<b>${g.text}</b><table class="table"><thead><tr><th>Opción</th><th>Selecciones</th></tr></thead><tbody>`;
-    g.rows.forEach(r=>{ html += `<tr><td>${r.Label}</td><td>${r.Count_Selected}</td></tr>`; });
-    html += '</tbody></table>';
-    card.innerHTML = html;
-    box.appendChild(card);
-  });
-
-  // Numéricas
-  (data.numeric||[]).forEach(n=>{
-    const card = document.createElement('div'); card.className='card';
-    card.innerHTML = `<b>${n.Question_Text}</b><div class="small">n=${n.n}</div>
-    <div>Promedio: <b>${Number(n.avg).toFixed(2)}</b> | Min: ${n.min} | Max: ${n.max}</div>`;
-    box.appendChild(card);
-  });
+  questions
+    .sort((a,b) => (a.Position||0) - (b.Position||0))
+    .forEach(q => {
+      const card = document.createElement('div'); card.className = 'card';
+      if (q.Type === 'single' || q.Type === 'multi') {
+        let html = `<b>${q.Position}. ${esc(q.Text)}</b> <span class="badge">${q.Type}</span>`;
+        html += `<table class="table" style="margin-top:8px;"><thead><tr><th>Opción</th><th>Selecciones</th></tr></thead><tbody>`;
+        const options = q.Choices || [];
+        if (options.length === 0) {
+          html += `<tr><td colspan="2"><i>Sin opciones definidas</i></td></tr>`;
+        } else {
+          options.forEach(c => {
+            const count = (countsByQChoiceId[q.ID]?.[c.ID])
+                       ?? (countsByQLabel[q.ID]?.[c.Label])
+                       ?? 0;
+            html += `<tr><td>${esc(c.Label)}</td><td>${count}</td></tr>`;
+          });
+        }
+        html += `</tbody></table>`;
+        card.innerHTML = html;
+      } else if (q.Type === 'number') {
+        const n = numericByQ[q.ID];
+        if (n && Number(n.n) > 0) {
+          card.innerHTML = `<b>${q.Position}. ${esc(q.Text)}</b> <span class="badge">number</span>
+            <div class="small">n=${n.n}</div>
+            <div>Promedio: <b>${Number(n.avg).toFixed(2)}</b> | Min: ${n.min} | Max: ${n.max}</div>`;
+        } else {
+          card.innerHTML = `<b>${q.Position}. ${esc(q.Text)}</b> <span class="badge">number</span>
+            <div class="small">n=0</div>
+            <div><i>Sin respuestas registradas</i></div>`;
+        }
+      } else {
+        const cod = codeByQ[q.ID]?.codes || [];
+        const nTot = codeByQ[q.ID]?.n_total ?? 0;
+        const nDis = codeByQ[q.ID]?.n_distinct ?? 0;
+        let html = `<b>${q.Position}. ${esc(q.Text)}</b> <span class="badge">${q.Type}</span>`;
+        html += `<div class="small">n=${nTot} • únicos=${nDis}</div>`;
+        if (cod.length) {
+          html += `<table class="table" style="margin-top:8px;">
+            <thead><tr><th>Código</th><th>Respuesta (significado)</th><th>Frecuencia</th></tr></thead><tbody>`;
+          cod.forEach(row=>{
+            html += `<tr><td>${row.code}</td><td>${esc(row.label)}</td><td>${row.count}</td></tr>`;
+          });
+          html += `</tbody></table>
+          <div class="small" style="margin-top:6px;">
+            <i>Nota:</i> el “código” es un número asignado a cada respuesta distinta para facilitar tabulaciones.
+          </div>`;
+        } else {
+          html += `<div class="small"><i>Sin respuestas registradas</i></div>`;
+        }
+        card.innerHTML = html;
+      }
+      box.appendChild(card);
+    });
 }
+
 
 // Exportar CSV (servidor)
 document.getElementById('btnCSV').onclick = ()=>{
@@ -440,16 +529,273 @@ document.getElementById('btnCSV').onclick = ()=>{
   window.location.href = '../api/export_csv.php?survey_id='+resultSurveyId;
 };
 
-// Exportar XLSX (cliente) usando tabla de recuentos visible
-document.getElementById('btnXLSX').onclick = ()=>{
-  const tables = document.querySelectorAll('#resBox table');
-  if (tables.length === 0) return;
-  const wb = XLSX.utils.book_new();
-  tables.forEach((t, idx)=>{
-    const ws = XLSX.utils.table_to_sheet(t);
-    XLSX.utils.book_append_sheet(wb, ws, 'P'+(idx+1));
+// Exportar XLSX (cliente) usando las tablas visibles
+/* === Exportar XLSX con layout tipo ejemplo === */
+document.getElementById('btnXLSX').onclick = async ()=>{
+  if (!resultSurveyId || !resultsCache.questions || !resultsCache.matrix || !window.ExcelJS) return;
+
+  const qList = [...resultsCache.questions].sort((a,b)=>(a.Position||0)-(b.Position||0));
+  const subs  = resultsCache.matrix.submissions || [];
+  const ans   = resultsCache.matrix.answers || [];
+  const multiByAnswer = resultsCache.matrix.answers_multi || {};
+  const coding = resultsCache.coding?.questions || [];
+
+  // ===== 1) Construir diccionarios de códigos por pregunta =====
+  const dictByQ = {};
+  const codingByQ = {};
+  (coding||[]).forEach(c => codingByQ[c.Question_ID] = c);
+
+  qList.forEach(q=>{
+    const qid = q.ID;
+    const type = q.Type;
+    if (type==='single' || type==='multi'){
+      const entries = [];
+      const mapChoiceId = {};
+      const choices = (q.Choices||[]).slice().sort((a,b)=> (a.Position||0)-(b.Position||0) || a.ID-b.ID);
+      choices.forEach((c,idx)=>{
+        entries.push({code: idx, label: c.Label, choice_id: c.ID});
+        mapChoiceId[c.ID] = idx; // códigos 0..N por orden
+      });
+      dictByQ[qid] = {type, entries, mapChoiceId, mapLabel:null, next: entries.length};
+    } else if (type==='text' || type==='date'){
+      const codeItems = (codingByQ[qid]?.codes)||[];
+      const entries = codeItems.map(it => ({code: it.code, label: it.label, count: it.count}));
+      const mapLabel = {};
+      let maxCode = 0;
+      entries.forEach(e => { mapLabel[normalizeVal(e.label)] = e.code; if (e.code>maxCode) maxCode=e.code; });
+      dictByQ[qid] = {type, entries, mapChoiceId:null, mapLabel, next: maxCode+1};
+    } else if (type==='number'){
+      dictByQ[qid] = {type, entries:[{code:'(num)', label:'Valor numérico'}], mapChoiceId:null, mapLabel:null, next:1};
+    } else {
+      dictByQ[qid] = {type, entries:[], mapChoiceId:null, mapLabel:null, next:1};
+    }
   });
-  XLSX.writeFile(wb, 'resultados_encuesta_'+resultSurveyId+'.xlsx');
+
+  // ===== 2) Indexar respuestas por (submission, question) =====
+  const bySubQ = {};
+  ans.forEach(a=>{
+    const sub = a.Submission_ID, qid = a.Question_ID;
+    if (!bySubQ[sub]) bySubQ[sub] = {};
+    if (!bySubQ[sub][qid]) bySubQ[sub][qid] = {text:null, number:null, date:null, single:null, multi:[]};
+    bySubQ[sub][qid].text   = a.Answer_text   ?? bySubQ[sub][qid].text;
+    bySubQ[sub][qid].number = a.Answer_number ?? bySubQ[sub][qid].number;
+    bySubQ[sub][qid].date   = a.Answer_date   ?? bySubQ[sub][qid].date;
+    if (a.Selected_Choice_ID) bySubQ[sub][qid].single = a.Selected_Choice_ID;
+    const mArr = multiByAnswer[a.Answer_ID];
+    if (mArr && mArr.length) {
+      bySubQ[sub][qid].multi = Array.from(new Set([...(bySubQ[sub][qid].multi||[]), ...mArr]));
+    }
+  });
+
+  // ===== 3) Crear workbook con ExcelJS =====
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Tabulación', {
+    properties: { defaultRowHeight: 20 }
+  });
+
+  // Paleta simple
+  const COLOR_HEADER = 'FFE2E2E2'; // gris claro
+  const COLOR_TITLE  = 'FFBDD7EE'; // azul suave
+  const COLOR_DIC_H  = 'FFDDEBF7'; // encabezado diccionario
+
+  // Estilos rápidos
+  const headerStyle = { font:{bold:true}, alignment:{vertical:'middle', horizontal:'center', wrapText:true}, fill:{type:'pattern', pattern:'solid', fgColor:{argb:COLOR_HEADER}}, border:{top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}} };
+  const titleStyle  = { font:{bold:true}, alignment:{vertical:'middle', horizontal:'left', wrapText:true},   fill:{type:'pattern', pattern:'solid', fgColor:{argb:COLOR_TITLE}},  border:{top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}} };
+  const dicHeadStyle= { font:{bold:true}, alignment:{vertical:'middle', horizontal:'center', wrapText:true}, fill:{type:'pattern', pattern:'solid', fgColor:{argb:COLOR_DIC_H}}, border:{top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}} };
+  const cellStyle   = { alignment:{vertical:'middle', wrapText:true}, border:{top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}} };
+
+  // ===== 4) Matriz codificada (izquierda) =====
+  // Cabeceras
+  const header = ['#','Nombre','Email'];
+  qList.forEach(q => header.push(toRoman(q.Position||0) || String(q.Position||'')));
+  ws.addRow(header);
+  ws.getRow(1).height = 24;
+  ws.getRow(1).eachCell(c => Object.assign(c, {style: headerStyle}));
+
+  // Anchos de columnas razonables
+  const colWidths = [4, 24, 28]; // #, Nombre, Email
+  for (let i=0;i<qList.length;i++) colWidths.push(12); // I, II, III...
+  ws.columns = colWidths.map(w => ({ width: w }));
+
+  // Filas con datos
+  subs.forEach((s,idx)=>{
+    const row = [idx+1, s.Respondent_Name || '', s.Respondent_Email || ''];
+    qList.forEach(q=>{
+      const qid = q.ID, type = q.Type;
+      const cell = bySubQ[s.Submission_ID]?.[qid] || null;
+      let v = '';
+      if (type==='single'){
+        const codeMap = dictByQ[qid].mapChoiceId || {};
+        const choiceId = cell?.single ?? null;
+        if (choiceId!=null && choiceId in codeMap) v = codeMap[choiceId];
+      } else if (type==='multi'){
+        const codeMap = dictByQ[qid].mapChoiceId || {};
+        const arr = cell?.multi || [];
+        const codes = arr.map(cid => (cid in codeMap)? codeMap[cid] : '').filter(x=>x!=='' && x!=null);
+        v = codes.join(',');
+      } else if (type==='number'){
+        v = (cell && cell.number!=null) ? Number(cell.number) : '';
+      } else if (type==='date'){
+        const label = cell?.date ? String(cell.date).substring(0,10) : '';
+        if (label){
+          const d = dictByQ[qid];
+          const key = normalizeVal(label);
+          let code = (d.mapLabel && d.mapLabel[key]!=null) ? d.mapLabel[key] : null;
+          if (code==null) { code = d.next++; d.mapLabel[key]=code; d.entries.push({code, label, count: 0}); }
+          v = code;
+        }
+      } else { // text
+        const label = cell?.text ? String(cell.text) : '';
+        if (label){
+          const d = dictByQ[qid];
+          const key = normalizeVal(label);
+          let code = (d.mapLabel && d.mapLabel[key]!=null) ? d.mapLabel[key] : null;
+          if (code==null) { code = d.next++; d.mapLabel[key]=code; d.entries.push({code, label, count: 0}); }
+          v = code;
+        }
+      }
+      row.push(v);
+    });
+    const r = ws.addRow(row);
+    r.eachCell(c => Object.assign(c, {style: cellStyle}));
+  });
+
+  // Título sobre la primera celda de la matriz (opcional)
+  ws.insertRow(1, ['Matriz codificada']);
+  ws.mergeCells(1,1,1,header.length);
+  Object.assign(ws.getCell(1,1), {style: titleStyle});
+  ws.getRow(1).height = 26;
+
+  // ===== 5) Diccionarios a la DERECHA con 1 columna vacía entre tablas =====
+  const matrixCols   = header.length;
+  const gapCols      = 1;        // 1 col en blanco entre matriz y diccionarios
+  const blockWidth   = 3;        // Código | Significado | Frecuencia/Nota
+  const startCol     = matrixCols + gapCols + 1; // ExcelJS es 1-based
+  const startRow     = 1;        // arriba del todo, alineados con matriz
+
+  qList.forEach((q, idx)=>{
+    const d = dictByQ[q.ID];
+
+    // Columnas del bloque con 1 col de separación entre bloques
+    const col0 = startCol + idx*(blockWidth + 1); // +1 = celda de separación
+    const cCode = col0, cLabel = col0+1, cFreq = col0+2;
+
+    // Título del bloque
+    const titleText = `Dic ${toRoman(q.Position||0) || String(q.Position||'')} — ${q.Text}`;
+    ws.mergeCells(startRow, col0, startRow, col0+blockWidth-1);
+    const tcell = ws.getCell(startRow, col0);
+    tcell.value = titleText;
+    Object.assign(tcell, {style: titleStyle});
+    ws.getRow(startRow).height = 26;
+
+    // Encabezado
+    const headRow = ws.getRow(startRow+1);
+    if (q.Type==='single' || q.Type==='multi'){
+      ws.getCell(startRow+1, cCode).value  = 'Código';
+      ws.getCell(startRow+1, cLabel).value = 'Opción';
+      ws.getCell(startRow+1, cFreq).value  = ''; // vacío
+    } else if (q.Type==='number'){
+      ws.getCell(startRow+1, cCode).value  = 'Tipo';
+      ws.getCell(startRow+1, cLabel).value = 'Descripción';
+      ws.getCell(startRow+1, cFreq).value  = '';
+    } else {
+      ws.getCell(startRow+1, cCode).value  = 'Código';
+      ws.getCell(startRow+1, cLabel).value = 'Respuesta (significado)';
+      ws.getCell(startRow+1, cFreq).value  = 'Frecuencia';
+    }
+    [cCode,cLabel,cFreq].forEach(c=>{
+      const cell = ws.getCell(startRow+1, c);
+      Object.assign(cell, {style: dicHeadStyle});
+    });
+    ws.getRow(startRow+1).height = 22;
+
+    // Filas del diccionario
+    let rPtr = startRow + 2;
+
+    if (q.Type==='single' || q.Type==='multi'){
+      (d.entries||[]).forEach(e=>{
+        ws.getCell(rPtr, cCode).value  = e.code;
+        ws.getCell(rPtr, cLabel).value = e.label;
+        ws.getCell(rPtr, cFreq).value  = '';
+        [cCode,cLabel,cFreq].forEach(c=>{
+          const cell = ws.getCell(rPtr, c);
+          Object.assign(cell, {style: cellStyle});
+        });
+        // envolver texto de significado
+        ws.getCell(rPtr, cLabel).alignment = { wrapText: true, vertical: 'middle' };
+        rPtr++;
+      });
+      // nota
+      rPtr++;
+      ws.getCell(rPtr, cCode).value = 'Nota:';
+      ws.getCell(rPtr, cLabel).value = 'Códigos por orden de opción (0..N).';
+      [cCode,cLabel,cFreq].forEach(c=>{
+        const cell = ws.getCell(rPtr, c);
+        Object.assign(cell, {style: cellStyle});
+      });
+
+    } else if (q.Type==='number'){
+      ws.getCell(rPtr, cCode).value  = 'number';
+      ws.getCell(rPtr, cLabel).value = 'Valor numérico (no codificado)';
+      [cCode,cLabel,cFreq].forEach(c=> Object.assign(ws.getCell(rPtr,c), {style: cellStyle}));
+      rPtr += 2;
+
+      // Stats si existen
+      const stat = (resultsCache.analytics.numeric||[]).find(n => n.Question_ID===q.ID);
+      if (stat){
+        const rows = [
+          ['n', Number(stat.n)||0, ''],
+          ['promedio', Number(stat.avg)||'', ''],
+          ['min', stat.min ?? '', ''],
+          ['max', stat.max ?? '', '']
+        ];
+        rows.forEach(rr=>{
+          ws.getCell(rPtr, cCode).value  = rr[0];
+          ws.getCell(rPtr, cLabel).value = rr[1];
+          ws.getCell(rPtr, cFreq).value  = rr[2];
+          [cCode,cLabel,cFreq].forEach(c=> Object.assign(ws.getCell(rPtr,c), {style: cellStyle}));
+          rPtr++;
+        });
+      }
+
+    } else { // text/date
+      (d.entries||[]).slice().sort((a,b)=>(a.code)-(b.code)).forEach(e=>{
+        ws.getCell(rPtr, cCode).value  = e.code;
+        ws.getCell(rPtr, cLabel).value = e.label;
+        ws.getCell(rPtr, cFreq).value  = e.count ?? '';
+        [cCode,cLabel,cFreq].forEach(c=>{
+          const cell = ws.getCell(rPtr, c);
+          Object.assign(cell, {style: cellStyle});
+        });
+        ws.getCell(rPtr, cLabel).alignment = { wrapText: true, vertical: 'middle' };
+        rPtr++;
+      });
+      rPtr++;
+      ws.getCell(rPtr, cCode).value  = 'Nota:';
+      ws.getCell(rPtr, cLabel).value = 'Códigos asignados a respuestas distintas.';
+      [cCode,cLabel,cFreq].forEach(c=>{
+        const cell = ws.getCell(rPtr, c);
+        Object.assign(cell, {style: cellStyle});
+      });
+    }
+
+    // Anchos de columnas del bloque (para que el texto no se corte)
+    ws.getColumn(cCode).width  = 10;
+    ws.getColumn(cLabel).width = 36;
+    ws.getColumn(cFreq).width  = 14;
+  });
+
+  // ===== 6) Descargar archivo =====
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tabulacion_codificada_encuesta_${resultSurveyId}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 };
 
 // Exportar PDF (cliente) capturando el HTML simple
@@ -463,7 +809,6 @@ document.getElementById('btnPDF').onclick = async ()=>{
   const doc = new jsPDF({ unit:'pt', format:'a4' });
 
   await doc.html(document.getElementById('resBox'), {
-    // Opcional: mejora calidad y evita problemas de desplazamiento
     html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: -window.scrollY },
     margin: [20,20,20,20],
     autoPaging: 'text',
