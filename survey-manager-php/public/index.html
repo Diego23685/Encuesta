@@ -9,6 +9,8 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+
 </head>
 <body>
   <header>
@@ -801,20 +803,46 @@ document.getElementById('btnXLSX').onclick = async ()=>{
 // Exportar PDF (cliente) capturando el HTML simple
 document.getElementById('btnPDF').onclick = async ()=>{
   if (!resultSurveyId) return;
-  if (!window.jspdf || !window.html2canvas) {
-    alert('No se pudo cargar jsPDF o html2canvas. Revisa la conexión o los <script> del head.');
-    return;
-  }
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:'pt', format:'a4' });
+  const el = document.getElementById('resBox');
+  if (!el) return;
 
-  await doc.html(document.getElementById('resBox'), {
-    html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: -window.scrollY },
-    margin: [20,20,20,20],
-    autoPaging: 'text',
-    callback: (d)=> d.save('resultados_encuesta_'+resultSurveyId+'.pdf')
-  });
+  // Asegura un fondo blanco (evita manchas transparentes)
+  const prevBg = el.style.backgroundColor;
+  el.style.backgroundColor = '#ffffff';
+
+  try {
+    const opt = {
+      filename: 'resultados_encuesta_'+resultSurveyId+'.pdf',
+      margin:      [10,10,10,10],                // pt
+      image:       { type: 'jpeg', quality: 0.98 },
+      html2canvas: { 
+        scale: 2, useCORS: true, allowTaint: false,
+        scrollX: 0, scrollY: 0, backgroundColor: '#ffffff'
+      },
+      jsPDF:       { unit: 'pt', format: 'a4', orientation: 'portrait' },
+      pagebreak:   { mode: ['avoid-all','css','legacy'] } // respeta break-inside y evita cortes
+    };
+
+    await html2pdf().from(el).set(opt).save();
+  } catch (e) {
+    // Fallback a jsPDF.doc.html si por alguna razón falla html2pdf
+    if (window.jspdf && window.html2canvas) {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit:'pt', format:'a4' });
+      await doc.html(el, {
+        html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, backgroundColor:'#ffffff' },
+        margin: [20,20,20,20],
+        autoPaging: 'text',
+        callback: (d)=> d.save('resultados_encuesta_'+resultSurveyId+'.pdf')
+      });
+    } else {
+      alert('No se pudo generar el PDF. Revisa que html2pdf, html2canvas y jsPDF estén cargados.');
+    }
+  } finally {
+    el.style.backgroundColor = prevBg;
+  }
 };
+
 </script>
 </body>
 </html>
